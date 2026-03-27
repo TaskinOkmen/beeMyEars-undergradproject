@@ -21,11 +21,56 @@ DISTANCE_BETWEEN_MICS_M = 10e-2 # 10 cm
 
 DEGREES_PER_RADIAN = 57.2957795 # degrees
 
-def calculate_angle_of_arrival_rad(time_difference_s, mic_distance):
 
-    val = np.clip((time_difference_s * SPEED_OF_SOUND_METERS_PER_SECOND) / mic_distance, -1.0, 1.0)
+
+def calculate_tdoa_rad(mic_left_signal, mic_right_signal, fs_hz, mic_distance_m):
+
+    time_difference_s = calculate_time_difference_s(mic_left_signal, mic_right_signal, fs_hz)
+
+    angle_of_arrival_rad = calculate_angle_of_arrival_rad(time_difference_s, mic_distance_m)
+
+    return angle_of_arrival_rad
+
+
+def calculate_time_difference_s(mic_left_signal, mic_right_signal, fs_hz):
+
+    # --- FFT ---
+    X1 = np.fft.fft(mic_left_signal)
+    X2 = np.fft.fft(mic_right_signal)
+
+    # Cross power spectrum
+    R = X1 * np.conj(X2)
+
+    # Partial PHAT normalization (power -0.3)
+    R_phat = R / (np.abs(R) ** (-0.3) + 1e-10)
+
+    # --- IFFT -> correlation ---
+    gcc = np.fft.ifft(R_phat)
+    gcc = np.real(gcc)
+
+    # --- Shift to center ---
+    gcc = np.fft.fftshift(gcc)
+
+    # --- Lag axis ---
+    lags = np.arange(-len(gcc)//2, len(gcc)//2)
+
+    # --- Peak detection ---
+    peak_index = np.argmax(gcc)
+    estimated_lag = lags[peak_index]
+
+    # --- Convert to time ---
+    time_difference_s = estimated_lag / fs_hz
+
+    return time_difference_s
+
+
+def calculate_angle_of_arrival_rad(time_difference_s, mic_distance_m):
+
+    val = np.clip((time_difference_s * SPEED_OF_SOUND_METERS_PER_SECOND) / mic_distance_m, -1.0, 1.0)
 
     return np.arccos(val)
+
+
 
 
 if __name__ == '__main__':
@@ -49,38 +94,14 @@ if __name__ == '__main__':
 
     # plt.grid()
     # plt.show()
-    
-    # --- GCC-PHAT ---
-
-    X1 = np.fft.fft(mic_left_signal)
-    X2 = np.fft.fft(mic_right_signal)
-
-    # Cross power spectrum
-    R = X1 * np.conj(X2)
-
-    # Partial PHAT normalization (power -0.3)
-    R_phat = R / (np.abs(R) ** (-0.3) + 1e-10)
-
-    # Inverse FFT -> cross correlation
-    gcc = np.fft.ifft(R_phat)
-
-    # Use real part
-    gcc = np.real(gcc)
-
-    # Circular Shift FFT
-    gcc = np.fft.fftshift(gcc)
-
-    lags = np.arange(-len(gcc)//2, len(gcc)//2)
-
-    estimated_lag = lags[np.argmax(gcc)]
-    time_difference_s = estimated_lag / fs_hz
 
 
+    time_difference_s = calculate_time_difference_s(mic_left_signal, mic_right_signal, fs_hz)
 
-    print("Estimated lag (samples):", estimated_lag)
+
     print("Estimated delay (seconds):", time_difference_s)
     print("Estimated delay (ms):", time_difference_s * 1000)
 
-    angle_of_arrival_rad = calculate_angle_of_arrival_rad(time_difference_s, DISTANCE_BETWEEN_MICS_M)
+    angle_of_arrival_rad = calculate_tdoa_rad(mic_left_signal, mic_right_signal, fs_hz, DISTANCE_BETWEEN_MICS_M)
     print("Angle of Arrival (rads):", angle_of_arrival_rad)
     print("Angle of Arrival (degrees):", angle_of_arrival_rad * DEGREES_PER_RADIAN)
