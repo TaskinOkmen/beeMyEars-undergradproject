@@ -3,7 +3,7 @@ import sounddevice as sd
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import queue
-import sys
+import collections
 
 from matplotlib.animation import FuncAnimation
 
@@ -27,8 +27,8 @@ DISTANCE_BETWEEN_MICS_M = 10e-2 # 10 cm
 
 DEGREES_PER_RADIAN = 57.2957795 # degrees
 
-BLOCK_SIZE = 4096 # 8192 2048 4096
-HOP_SIZE   = 1080  #  320 480  1080
+BLOCK_SIZE = 2048 # 8192 2048 4096
+HOP_SIZE   = 480 # 2040 480  1080
 
 
 def estimate_aoa_over_time_overlap_to_array(mic_left_signal, mic_right_signal, fs_hz, mic_distance_m, block_size=BLOCK_SIZE, hop_size=HOP_SIZE):
@@ -110,11 +110,13 @@ buffer_left = np.zeros(BUFFER_SIZE)
 buffer_right = np.zeros(BUFFER_SIZE)
 
 q = queue.Queue()
+angles = collections.deque(maxlen=200)
 
 def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
+    global q
 
     num_samples = BUFFER_SIZE
-    angles = []
+    #angles = []
 
     for start in range(0, num_samples - block_size, hop_size):
 
@@ -131,7 +133,8 @@ def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
         )
 
         #angles.append(angle)
-        print(angle * DEGREES_PER_RADIAN)
+        #print(angle * DEGREES_PER_RADIAN)
+        q.put(angle * DEGREES_PER_RADIAN)
 
 
 
@@ -201,6 +204,26 @@ def audio_callback(indata, frames, time, status):
 #     pass
 
 
+def update_plot(frame):
+    """Update the plot with new azimuth angles."""
+    while not q.empty():
+        angles.append(q.get_nowait())
+    line.set_data(range(len(angles)), list(angles))
+    ax.relim()
+    ax.autoscale_view()
+    return line,
+
+
+# Set up the plot
+fig, ax = plt.subplots()
+line, = ax.plot([], [], marker='o')
+ax.set_xlabel('Frame')
+ax.set_ylabel('Azimuth (deg)')
+ax.set_ylim(-100, 100)
+ax.grid(True)
+
+ani = FuncAnimation(fig, update_plot, interval=25, blit=True)
+
 
 # start stream
 with sd.InputStream(
@@ -211,8 +234,7 @@ with sd.InputStream(
     callback=audio_callback
 ):
     print("Listening... Press Ctrl+C to stop")
-    while True:
-        pass
+    plt.show()
 
 # if __name__ == '__main__':
 
