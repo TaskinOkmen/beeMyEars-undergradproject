@@ -4,14 +4,23 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import queue
 import collections
+import socket
+import time
 
 from matplotlib.animation import FuncAnimation
 
+UDP_IP = "127.0.0.1"
+UDP_PORT = 5005
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def send_azimuth(angle):
+    timestamp = time.time()
+    msg = f"{timestamp},{angle}"
+    sock.sendto(msg.encode(), (UDP_IP, UDP_PORT))
+
 # Constant Parameters
 fs_hz = 16000                      # Sampling frequency
-f_hz = 1000                        # Sine frequency (1 kHz)
-duration_s = 0.1                  # 20 ms signal
-
 
 # (2.915451895044e-4)   -> gives 0   degrees
 # (1.5e-4)              -> gives 60  degrees
@@ -116,7 +125,7 @@ def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
     global q
 
     num_samples = BUFFER_SIZE
-    #angles = []
+    angles = []
 
     for start in range(0, num_samples - block_size, hop_size):
 
@@ -132,9 +141,20 @@ def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
             DISTANCE_BETWEEN_MICS_M
         )
 
-        #angles.append(angle)
-        #print(angle * DEGREES_PER_RADIAN)
-        q.put(angle * DEGREES_PER_RADIAN)
+        final_angle = round(angle * DEGREES_PER_RADIAN)
+
+        # angles.append( final_angle )
+        send_azimuth(final_angle)
+        q.put(final_angle)
+
+    # if len(angles) == 0:
+    #     return
+
+    # # pick ONE stable estimate (median is best here)
+    # final_angle = np.median(angles)
+
+    # send_azimuth(final_angle)
+    # q.put(final_angle)
 
 
 
@@ -153,55 +173,6 @@ def audio_callback(indata, frames, time, status):
     # shift buffer (FIFO)
     np.copyto(buffer_left[:BLOCK_SIZE], buffer_left[BLOCK_SIZE:])
     np.copyto(buffer_right[:BLOCK_SIZE], buffer_right[BLOCK_SIZE:])
-
-
-
-# def update_plot(frame):
-#     """This is called by matplotlib for each plot update.
-
-#     Typically, audio callbacks happen more frequently than plot updates,
-#     therefore the queue tends to contain multiple blocks of audio data.
-
-#     """
-#     global plotdata
-#     while True:
-#         try:
-#             data = q.get_nowait()
-#         except queue.Empty:
-#             break
-#         shift = len(data)
-#         plotdata = np.roll(plotdata, -shift, axis=0)
-#         plotdata[-shift:, :] = data
-#     for column, line in enumerate(lines):
-#         line.set_ydata(plotdata[:, column])
-#     return lines
-
-
-# try:
-#     if args.samplerate is None:
-#         device_info = sd.query_devices(args.device, 'input')
-#         args.samplerate = device_info['default_samplerate']
-
-#     length = int(args.window * args.samplerate / (1000 * args.downsample))
-#     plotdata = np.zeros((length, len(args.channels)))
-
-#     fig, ax = plt.subplots()
-#     lines = ax.plot(plotdata)
-#     ax.axis((0, len(plotdata), -1, 1))
-#     ax.set_yticks([0])
-#     ax.yaxis.grid(True)
-#     ax.tick_params(bottom=False, top=False, labelbottom=False,
-#                    right=False, left=False, labelleft=False)
-#     fig.tight_layout(pad=0)
-
-#     stream = sd.InputStream(
-#         device=args.device, channels=max(args.channels),
-#         samplerate=args.samplerate, callback=audio_callback)
-#     ani = FuncAnimation(fig, update_plot, interval=args.interval, blit=True)
-#     with stream:
-#         plt.show()
-# except Exception as e:
-#     pass
 
 
 def update_plot(frame):
@@ -235,80 +206,3 @@ with sd.InputStream(
 ):
     print("Listening... Press Ctrl+C to stop")
     plt.show()
-
-# if __name__ == '__main__':
-
-#     sr, mic_right_signal = wavfile.read("recording_ch2.wav")
- 
-#     sr, mic_left_signal = wavfile.read("recording_ch1.wav")
-
-#     angles = estimate_aoa_over_time_overlap_to_array(mic_left_signal, mic_right_signal, fs_hz, DISTANCE_BETWEEN_MICS_M)
-
-#     print(angles)
-    
-#     plt.plot(angles, label = 'Mic Right', marker='o')
-#     plt.legend()
-
-#     plt.grid()
-#     plt.show()
-
-
-
-
-# TEST CODE BELOW - NOT USED IN FINAL VERSION
-
-# angles = []
-
-# def test_estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
-
-#     num_samples = BUFFER_SIZE
-    
-
-#     for start in range(0, num_samples - block_size, hop_size):
-
-#         end = start + block_size
-
-#         block_x1 = x1[start:end]
-#         block_x2 = x2[start:end]
-
-#         angle = calculate_tdoa_rad(
-#             block_x1,
-#             block_x2,
-#             fs_hz,
-#             DISTANCE_BETWEEN_MICS_M
-#         )
-
-#         angles.append(angle * DEGREES_PER_RADIAN)
-#         #print(angle * DEGREES_PER_RADIAN)
-
-# def test_audio_callback(left_signal, right_signal, frames):
-#     global buffer_left, buffer_right
-
-#     # assume channel 1 = left, 2 = right
-#     new_left = left_signal
-#     new_right = right_signal
-
-#     buffer_left[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_left
-#     buffer_right[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_right
-
-#     test_estimate_aoa_over_time_overlap(buffer_left, buffer_right, BLOCK_SIZE, HOP_SIZE)
-
-#     # shift buffer (FIFO)
-#     np.copyto(buffer_left[:BLOCK_SIZE], buffer_left[BLOCK_SIZE:])
-#     np.copyto(buffer_right[:BLOCK_SIZE], buffer_right[BLOCK_SIZE:])
-
-# if __name__ == '__main__':
-
-#     sr, mic_right_signal = wavfile.read("recording_ch2.wav")
- 
-#     sr, mic_left_signal = wavfile.read("recording_ch1.wav")
-
-
-#     for i in range(0, len(mic_left_signal) - BLOCK_SIZE, HOP_SIZE):
-#         test_audio_callback(mic_left_signal[i:i+BLOCK_SIZE], mic_right_signal[i:i+BLOCK_SIZE], BLOCK_SIZE)
-    
-#     plt.plot(angles, label = 'Mic Right', marker='o')
-#     plt.legend()
-
-#     plt.grid()
-#     plt.show()
