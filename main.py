@@ -39,6 +39,16 @@ DEGREES_PER_RADIAN = 57.2957795 # degrees
 BLOCK_SIZE = 2048 # 8192 2048 4096
 HOP_SIZE   = 480 # 2040 480  1080
 
+# index start from 0, so channel 1 = index 0, channel 2 = index 1,
+# channel 3 = index 2, etc.
+
+LEFT_MIC_CHANNEL = 5
+RIGHT_MIC_CHANNEL = 3
+
+# assume channel 1 = left, 2 = right
+LEFT_MIC_INDEX = LEFT_MIC_CHANNEL - 1
+RIGHT_MIC_INDEX = RIGHT_MIC_CHANNEL - 1
+
 
 def estimate_aoa_over_time_overlap_to_array(mic_left_signal, mic_right_signal, fs_hz, mic_distance_m, block_size=BLOCK_SIZE, hop_size=HOP_SIZE):
 
@@ -162,8 +172,8 @@ def audio_callback(indata, frames, time, status):
     global buffer_left, buffer_right
 
     # assume channel 1 = left, 2 = right
-    new_left = indata[:, 1]
-    new_right = indata[:, 2]
+    new_left = indata[:, LEFT_MIC_INDEX]
+    new_right = indata[:, RIGHT_MIC_INDEX]
 
     buffer_left[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_left
     buffer_right[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_right
@@ -202,7 +212,7 @@ with sd.InputStream(
     channels=8,           # your RASP-LC has 8 channels
     dtype='int16',
     blocksize=BLOCK_SIZE,
-    callback=audio_callback
+    callback=audio_callback,
 ):
     print("Listening... Press Ctrl+C to stop")
     plt.show()
