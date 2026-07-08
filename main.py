@@ -9,15 +9,25 @@ import time
 
 from matplotlib.animation import FuncAnimation
 
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5005
+RFCOMM_CHANNEL = 4  # locked — matches Android RFCOMM_CHANNEL constant
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server_sock = socket.socket(
+    socket.AF_BLUETOOTH,
+    socket.SOCK_STREAM,
+    socket.BTPROTO_RFCOMM
+)
+
+server_sock.bind(("9C:B6:D0:67:63:0C", RFCOMM_CHANNEL))
+server_sock.listen(1)
+print(f"Waiting for phone to connect on channel {RFCOMM_CHANNEL}...")
+
+client_sock, client_info = server_sock.accept()
+print(f"✅ Phone connected from: {client_info}")
 
 def send_azimuth(angle):
-    timestamp = time.time()
-    msg = f"{timestamp},{angle}"
-    sock.sendto(msg.encode(), (UDP_IP, UDP_PORT))
+    # timestamp = time.time()
+    msg = f"angle,{angle}\n"
+    client_sock.send(msg.encode("utf-8"))
 
 # Constant Parameters
 fs_hz = 16000                      # Sampling frequency
