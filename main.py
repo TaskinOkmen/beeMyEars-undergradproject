@@ -14,8 +14,8 @@ import sys
 
 # --- Configuration Parameters ---
 
-BLOCK_SIZE = 1024 # 8192 2048 4096
-HOP_SIZE   = 256 # 2040 480  1080
+BLOCK_SIZE = 2048 # 8192 2048 4096
+HOP_SIZE   = 512 # 2040 480  1080
 
 # index start from 0, so channel 1 = index 0, channel 2 = index 1,
 # channel 3 = index 2, etc.
