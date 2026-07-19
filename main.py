@@ -11,6 +11,7 @@ import azimuth_processing as asp
 import time
 import signal
 import sys
+import statistics as st
 
 # --- Configuration Parameters ---
 
@@ -137,26 +138,34 @@ def audio_callback(indata, frames, time, status):
 
 
 def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
-    num_samples = BUFFER_SIZE
+  num_samples = BUFFER_SIZE
 
-    for start in range(0, num_samples - block_size, hop_size):
+  angles = []
 
-        end = start + block_size
+  for start in range(0, num_samples - block_size, hop_size):
 
-        block_x1 = x1[start:end]
-        block_x2 = x2[start:end]
+    end = start + block_size
 
-        angle = asp.calculate_tdoa_rad(
-            block_x1,
-            block_x2,
-            fs_hz,
-            DISTANCE_BETWEEN_MICS_M
-        )
+    block_x1 = x1[start:end]
+    block_x2 = x2[start:end]
 
-        final_angle = round(angle * DEGREES_PER_RADIAN)
+    angle = asp.calculate_tdoa_rad(
+        block_x1,
+        block_x2,
+        fs_hz,
+        DISTANCE_BETWEEN_MICS_M
+    )
 
-        send_azimuth(final_angle)
-        plot_queue.put(final_angle)
+    final_angle = round(angle * DEGREES_PER_RADIAN)
+
+    angles.append(final_angle)
+
+  
+  mode = st.mode(angles)
+
+  send_azimuth(mode)
+  plot_queue.put(mode)
+
 
 
 
