@@ -37,6 +37,8 @@ bt_queue = queue.Queue(maxsize=200)
 plot_queue = queue.Queue()
 angles = collections.deque(maxlen=200)
 
+audio_block_queue = queue.Queue(maxsize=4)
+
 server_sock = socket.socket(
     socket.AF_BLUETOOTH,
     socket.SOCK_STREAM,
@@ -61,6 +63,8 @@ print(f"✅ Phone connected from: {client_info}")
 
 def shutdown(sig=None, frame=None):
     print("\nShutting down...")
+    audio_block_queue.put(None)
+    processing_thread.join(timeout=2)
     bt_queue.put(None)          # stop BT thread
     bt_thread.join(timeout=2)
     try:
@@ -82,25 +86,18 @@ signal.signal(signal.SIGTERM, shutdown)
 
 
 
-# -----------------------------
-# BT SEND QUEUE — non-blocking from audio callback
-# -----------------------------
+def audio_callback(indata, frames, time_info, status):
 
-def audio_callback(indata, frames, time, status):
-    global buffer_mic_a, buffer_mic_b, buffer_mic_c
+  # Minimal, bounded work: 3 small copies + a non-blocking enqueue
+  block_a = indata[:cs.BLOCK_SIZE, MIC_A_INDEX].copy()
+  block_b = indata[:cs.BLOCK_SIZE, MIC_B_INDEX].copy()
+  # block_c = indata[:cs.BLOCK_SIZE, MIC_C_INDEX].copy()
 
-    # shift old data left by exactly `frames` samples (in-place, no allocation)
-    # first half                  = second half
-    buffer_mic_a[:-cs.BLOCK_SIZE] = buffer_mic_a[cs.BLOCK_SIZE:]
-    buffer_mic_b[:-cs.BLOCK_SIZE] = buffer_mic_b[cs.BLOCK_SIZE:]
-    # buffer_mic_c[:-cs.BLOCK_SIZE] = buffer_mic_c[cs.BLOCK_SIZE:]
-
-    # append new chunk at the end
-    buffer_mic_a[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_A_INDEX]
-    buffer_mic_b[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_B_INDEX]
-    # buffer_mic_c[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_C_INDEX]
-
-    estimate_aoa_over_time_overlap(buffer_mic_a, buffer_mic_b, cs.BLOCK_SIZE, cs.HOP_SIZE)
+  try:
+    audio_block_queue.put_nowait((block_a, block_b))  # , block_c))
+  except queue.Full:
+    # Drop rather than block the realtime thread.
+    pass
 
 
 
@@ -125,6 +122,29 @@ def estimate_aoa_over_time_overlap(x1_left, x2_right, block_size, hop_size):
 
         send_azimuth(final_angle)
         plot_queue.put(final_angle)
+
+
+
+def processing_thread_fn():
+    buffer_mic_a = np.zeros(BUFFER_SIZE)
+    buffer_mic_b = np.zeros(BUFFER_SIZE)
+
+    while True:
+      item = audio_block_queue.get()
+      if item is None:
+        break  # shutdown signal
+
+      block_a, block_b = item
+
+      # same sliding-window bookkeeping as before, just off the audio thread now
+      # first half                  = second half
+      buffer_mic_a[:-cs.BLOCK_SIZE] = buffer_mic_a[cs.BLOCK_SIZE:]
+      buffer_mic_b[:-cs.BLOCK_SIZE] = buffer_mic_b[cs.BLOCK_SIZE:]
+
+      buffer_mic_a[-cs.BLOCK_SIZE:] = block_a
+      buffer_mic_b[-cs.BLOCK_SIZE:] = block_b
+
+      estimate_aoa_over_time_overlap(buffer_mic_a, buffer_mic_b, cs.BLOCK_SIZE, cs.HOP_SIZE)
 
 
 
@@ -173,6 +193,9 @@ ani = FuncAnimation(fig, update_plot, interval=25, blit=True)
 
 bt_thread = threading.Thread(target=bt_sender_thread, daemon=True)
 bt_thread.start()
+
+processing_thread = threading.Thread(target=processing_thread_fn, daemon=True)
+processing_thread.start()
 
 # -----------------------------
 # START STREAM
