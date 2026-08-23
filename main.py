@@ -3,6 +3,8 @@ import sounddevice as sd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from scipy.io import wavfile
+import constant_params as cs
+import kde_processing as kdep
 import queue
 import collections
 import socket
@@ -12,36 +14,28 @@ import time
 import signal
 import sys
 
-# --- Configuration Parameters ---
 
-BLOCK_SIZE = 2048 # 8192 2048 4096
-HOP_SIZE   = 512 # 2040 480  1080
-
-# index start from 0, so channel 1 = index 0, channel 2 = index 1,
-# channel 3 = index 2, etc.
-#                 left <--> right
-# Mic positioning A--- 10 cm ---B
-
-MIC_A_CHANNEL = 5
-MIC_B_CHANNEL = 3
-
-# --- Configuration Parameters ---
-
-
-
-# Constant Parameters
-fs_hz = 16000                      # Sampling frequency
-
-SPEED_OF_SOUND_METERS_PER_SECOND = 343.0 # 343.0 m/s
-DISTANCE_BETWEEN_MICS_M = 10e-2 # 10 cm
-
-DEGREES_PER_RADIAN = 57.2957795 # degrees
 
 # assume channel 1 = left, 2 = right
-MIC_A_INDEX = MIC_A_CHANNEL - 1
-MIC_B_INDEX = MIC_B_CHANNEL - 1
+MIC_A_INDEX = cs.MIC_A_CHANNEL - 1
+MIC_B_INDEX = cs.MIC_B_CHANNEL - 1
+MIC_C_INDEX = cs.MIC_C_CHANNEL - 1
 
 RFCOMM_CHANNEL = 4  # locked — matches Android RFCOMM_CHANNEL constant
+
+#  buffers
+BUFFER_SIZE = cs.BLOCK_SIZE * 2
+
+buffer_mic_a = np.zeros(BUFFER_SIZE)
+buffer_mic_b = np.zeros(BUFFER_SIZE)
+buffer_mic_c = np.zeros(BUFFER_SIZE)
+
+AOA_STARTS = range(0, BUFFER_SIZE - cs.BLOCK_SIZE, cs.HOP_SIZE)
+
+bt_queue = queue.Queue(maxsize=200)
+
+plot_queue = queue.Queue()
+angles = collections.deque(maxlen=200)
 
 server_sock = socket.socket(
     socket.AF_BLUETOOTH,
@@ -92,68 +86,42 @@ signal.signal(signal.SIGTERM, shutdown)
 # BT SEND QUEUE — non-blocking from audio callback
 # -----------------------------
 
-bt_queue = queue.Queue(maxsize=200)
-
-#  buffers
-BUFFER_SIZE = BLOCK_SIZE * 2
-
-buffer_mic_a = np.zeros(BUFFER_SIZE)
-buffer_mic_b = np.zeros(BUFFER_SIZE)
-
-plot_queue = queue.Queue()
-angles = collections.deque(maxlen=200)
-
-
-
 def audio_callback(indata, frames, time, status):
-    global buffer_mic_a, buffer_mic_b
-
-    new_mic_a = indata[:BLOCK_SIZE, MIC_A_INDEX]
-    new_mic_b = indata[:BLOCK_SIZE, MIC_B_INDEX]
+    global buffer_mic_a, buffer_mic_b, buffer_mic_c
 
     # shift old data left by exactly `frames` samples (in-place, no allocation)
-    # first half               = second half
-    buffer_mic_a[:-BLOCK_SIZE] = buffer_mic_a[BLOCK_SIZE:]
-    buffer_mic_b[:-BLOCK_SIZE] = buffer_mic_b[BLOCK_SIZE:]
+    # first half                  = second half
+    buffer_mic_a[:-cs.BLOCK_SIZE] = buffer_mic_a[cs.BLOCK_SIZE:]
+    buffer_mic_b[:-cs.BLOCK_SIZE] = buffer_mic_b[cs.BLOCK_SIZE:]
+    # buffer_mic_c[:-cs.BLOCK_SIZE] = buffer_mic_c[cs.BLOCK_SIZE:]
 
     # append new chunk at the end
-    buffer_mic_a[-BLOCK_SIZE:] = new_mic_a
-    buffer_mic_b[-BLOCK_SIZE:] = new_mic_b
+    buffer_mic_a[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_A_INDEX]
+    buffer_mic_b[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_B_INDEX]
+    # buffer_mic_c[-cs.BLOCK_SIZE:] = indata[:cs.BLOCK_SIZE, MIC_C_INDEX]
 
-    estimate_aoa_over_time_overlap(buffer_mic_a, buffer_mic_b, BLOCK_SIZE, HOP_SIZE)
-
-    # new_left = indata[:, MIC_A_INDEX]
-    # new_right = indata[:, MIC_B_INDEX]
-
-    # buffer_mic_a[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_left
-    # buffer_mic_b[BUFFER_SIZE//2 : BUFFER_SIZE//2 + frames] = new_right
-
-    # estimate_aoa_over_time_overlap(buffer_mic_a, buffer_mic_b, BLOCK_SIZE, HOP_SIZE)
-
-    # # shift buffer (FIFO)
-    # np.copyto(buffer_mic_a[:BLOCK_SIZE], buffer_mic_a[BLOCK_SIZE:])
-    # np.copyto(buffer_mic_b[:BLOCK_SIZE], buffer_mic_b[BLOCK_SIZE:])
+    estimate_aoa_over_time_overlap(buffer_mic_a, buffer_mic_b, cs.BLOCK_SIZE, cs.HOP_SIZE)
 
 
 
-def estimate_aoa_over_time_overlap(x1, x2, block_size, hop_size):
+def estimate_aoa_over_time_overlap(x1_left, x2_right, block_size, hop_size):
     num_samples = BUFFER_SIZE
 
-    for start in range(0, num_samples - block_size, hop_size):
+    for start in AOA_STARTS:
 
         end = start + block_size
 
-        block_x1 = x1[start:end]
-        block_x2 = x2[start:end]
+        block_x1 = x1_left[start:end]
+        block_x2 = x2_right[start:end]
 
-        angle = asp.calculate_tdoa_rad(
+        angle_rad = asp.calculate_tdoa_rad(
             block_x1,
             block_x2,
-            fs_hz,
-            DISTANCE_BETWEEN_MICS_M
+            cs.fs_hz,
+            cs.DISTANCE_BETWEEN_MICS_M
         )
 
-        final_angle = round(angle * DEGREES_PER_RADIAN)
+        final_angle = round(angle_rad * cs.DEGREES_PER_RADIAN)
 
         send_azimuth(final_angle)
         plot_queue.put(final_angle)
@@ -212,10 +180,10 @@ bt_thread.start()
 
 try:
     with sd.InputStream(
-        samplerate=fs_hz,
+        samplerate=cs.fs_hz,
         channels=8,
         dtype='int16',
-        blocksize=BLOCK_SIZE,
+        blocksize=cs.BLOCK_SIZE,
         callback=audio_callback,
     ):
         print("Listening... Ctrl+C or close plot window to stop")
