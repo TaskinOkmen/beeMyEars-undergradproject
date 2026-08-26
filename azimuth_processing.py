@@ -1,7 +1,9 @@
 import numpy as np
 import constant_params as cs
 
-MAX_LAG_SAMPLES = int(np.ceil(cs.DISTANCE_BETWEEN_MICS_M * cs.fs_hz / cs.SPEED_OF_SOUND_METERS_PER_SECOND))
+max_len = max(cs.DISTANCE_BETWEEN_MICS_A_B_M, cs.DISTANCE_BETWEEN_MICS_B_C_M, cs.DISTANCE_BETWEEN_MICS_A_C_M)
+
+MAX_LAG_SAMPLES = int(np.ceil(max_len * cs.fs_hz / cs.SPEED_OF_SOUND_METERS_PER_SECOND))
 
 
 def calculate_tdoa_rad(mic_left_signal, mic_right_signal, fs_hz, mic_distance_m):
@@ -43,7 +45,7 @@ def calculate_angle_of_arrival_rad(time_difference_s, mic_distance_m):
 
   val = np.clip((time_difference_s * cs.SPEED_OF_SOUND_METERS_PER_SECOND) / mic_distance_m, -1.0, 1.0)
 
-  return np.arcsin(val)
+  return np.arccos(val)
 
 
 
