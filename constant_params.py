@@ -29,7 +29,14 @@ DISTANCE_BETWEEN_MICS_A_B_M = 10e-2 # 10 cm
 DISTANCE_BETWEEN_MICS_B_C_M = 13.5e-2 # 13.5 cm
 DISTANCE_BETWEEN_MICS_A_C_M = 10e-2 # 10 cm
 
+HOST = 1 # 1 = raspberry pi, 0 = laptop
+
 # --- Configuration Parameters ---
+
+if HOST == 1:
+  BLE_MAC = "DC:A6:32:02:55:79"
+else:
+  BLE_MAC = "9C:B6:D0:67:63:0C"
 
 # --- Constant Parameters ---
 

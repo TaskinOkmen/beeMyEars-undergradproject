@@ -48,7 +48,7 @@ server_sock = socket.socket(
 # Fix Problem 2 — lets the port be reused immediately after process dies
 # server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-server_sock.bind(("9C:B6:D0:67:63:0C", RFCOMM_CHANNEL))
+server_sock.bind((cs.BLE_MAC, RFCOMM_CHANNEL))
 server_sock.listen(1)
 print(f"Waiting for phone to connect on channel {RFCOMM_CHANNEL}...")
 
